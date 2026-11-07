@@ -33,6 +33,7 @@ add_executable(tests
   tests/test_showdown.cpp
   tests/test_solver.cpp
   tests/test_buckets.cpp
+  tests/test_exploit.cpp
 )
 target_link_libraries(tests poker)
 
