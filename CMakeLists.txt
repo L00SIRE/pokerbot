@@ -15,6 +15,7 @@ add_compile_options(-Wall -Wextra)
 add_library(poker
   src/card.cpp
   src/eval.cpp
+  src/combos.cpp
 )
 target_include_directories(poker PUBLIC src)
 
@@ -22,6 +23,7 @@ add_executable(tests
   tests/main.cpp
   tests/test_cards.cpp
   tests/test_eval.cpp
+  tests/test_combos.cpp
 )
 target_link_libraries(tests poker)
 
