@@ -18,6 +18,7 @@ add_library(poker
   src/combos.cpp
   src/range.cpp
   src/equity.cpp
+  src/showdown.cpp
 )
 target_include_directories(poker PUBLIC src)
 
@@ -27,6 +28,7 @@ add_executable(tests
   tests/test_eval.cpp
   tests/test_combos.cpp
   tests/test_range.cpp
+  tests/test_showdown.cpp
 )
 target_link_libraries(tests poker)
 
