@@ -21,6 +21,7 @@ add_library(poker
   src/showdown.cpp
   src/river_solver.cpp
   src/buckets.cpp
+  src/opponent.cpp
 )
 target_include_directories(poker PUBLIC src)
 
@@ -34,6 +35,7 @@ add_executable(tests
   tests/test_solver.cpp
   tests/test_buckets.cpp
   tests/test_exploit.cpp
+  tests/test_opponent.cpp
 )
 target_link_libraries(tests poker)
 
