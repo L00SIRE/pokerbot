@@ -16,6 +16,8 @@ add_library(poker
   src/card.cpp
   src/eval.cpp
   src/combos.cpp
+  src/range.cpp
+  src/equity.cpp
 )
 target_include_directories(poker PUBLIC src)
 
@@ -24,6 +26,7 @@ add_executable(tests
   tests/test_cards.cpp
   tests/test_eval.cpp
   tests/test_combos.cpp
+  tests/test_range.cpp
 )
 target_link_libraries(tests poker)
 
@@ -31,6 +34,9 @@ find_package(Threads REQUIRED)
 
 add_executable(verify_hands apps/verify_hands.cpp)
 target_link_libraries(verify_hands poker Threads::Threads)
+
+add_executable(equity apps/equity.cpp)
+target_link_libraries(equity poker)
 
 enable_testing()
 add_test(NAME tests COMMAND tests)
