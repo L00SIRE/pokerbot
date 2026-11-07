@@ -130,10 +130,20 @@ void RiverSolver::terminal_values(const Node& n, int me, const double* opp, doub
     }
 }
 
-void RiverSolver::walk(int id, int me, const double* my, const double* opp, double* out) {
+void RiverSolver::walk(int id, int me, const double* my, const double* opp, const double* fixed, double* out) {
     Node& n = nodes_[id];
+
+    // what we actually face = (1-p) * nemesis + p * model
+    std::vector<double> mix;
+    auto mixed = [&]() -> const double* {
+        if (!fixed) return opp;
+        mix.resize(N);
+        for (int k = 0; k < N; k++) mix[k] = (1 - exploit_p_) * opp[k] + exploit_p_ * fixed[k];
+        return mix.data();
+    };
+
     if (n.type != Node::ACTION) {
-        terminal_values(n, me, opp, out);
+        terminal_values(n, me, mixed(), out);
         return;
     }
 
@@ -143,9 +153,12 @@ void RiverSolver::walk(int id, int me, const double* my, const double* opp, doub
     std::fill(out, out + N, 0.0);
 
     if (n.player != me) {
+        std::vector<double> reach_fixed(fixed ? N : 0);
         for (int a = 0; a < na; a++) {
             for (int k = 0; k < N; k++) reach[k] = opp[k] * s[a * N + k];
-            walk(n.kids[a], me, my, reach.data(), &vals[a * N]);
+            if (fixed)
+                for (int k = 0; k < N; k++) reach_fixed[k] = fixed[k] * n.model[a * N + k];
+            walk(n.kids[a], me, my, reach.data(), fixed ? reach_fixed.data() : nullptr, &vals[a * N]);
             for (int k = 0; k < N; k++) out[k] += vals[a * N + k];
         }
         return;
@@ -153,10 +166,19 @@ void RiverSolver::walk(int id, int me, const double* my, const double* opp, doub
 
     for (int a = 0; a < na; a++) {
         for (int h = 0; h < N; h++) reach[h] = my[h] * s[a * N + h];
-        walk(n.kids[a], me, reach.data(), opp, &vals[a * N]);
+        walk(n.kids[a], me, reach.data(), opp, fixed, &vals[a * N]);
         for (int h = 0; h < N; h++) out[h] += s[a * N + h] * vals[a * N + h];
     }
-    update(n, s, vals, out, my, opp);
+    update(n, s, vals, out, my, algo_ == Algo::MMD ? mixed() : opp);
+}
+
+void RiverSolver::set_exploit(int who, double p) {
+    for (const Node& n : nodes_) {
+        if (n.type == Node::ACTION && n.player == who && n.model.size() != n.kids.size() * N)
+            throw std::invalid_argument("set_exploit: model missing for some of that player's nodes");
+    }
+    exploit_who_ = who;
+    exploit_p_ = std::clamp(p, 0.0, 1.0);
 }
 
 void RiverSolver::update(Node& n, const std::vector<double>& s, const std::vector<double>& vals,
@@ -237,8 +259,13 @@ void RiverSolver::iterate(int n) {
     std::vector<double> out(N);
     for (int i = 0; i < n; i++) {
         t_++;
-        // alternating updates
-        for (int p = 0; p < 2; p++) walk(0, p, spot_.range[p].w.data(), spot_.range[1 - p].w.data(), out.data());
+        // alternating updates. the modelled player's free half learns as usual, only
+        // the other player sees the fixed half
+        for (int p = 0; p < 2; p++) {
+            const double* opp = spot_.range[1 - p].w.data();
+            const bool vs_model = exploit_who_ == 1 - p && exploit_p_ > 0;
+            walk(0, p, spot_.range[p].w.data(), opp, vs_model ? opp : nullptr, out.data());
+        }
     }
 }
 
@@ -288,19 +315,19 @@ void RiverSolver::best_response(int id, int me, const double* opp, double* out) 
     }
 }
 
-double RiverSolver::exploitability() const {
+double RiverSolver::best_response_value(int p) const {
     std::vector<double> out(N), live(N);
+    best_response(0, p, spot_.range[1 - p].w.data(), out.data());
     double total = 0;
-    for (int p = 0; p < 2; p++) {
-        best_response(0, p, spot_.range[1 - p].w.data(), out.data());
-        for (int h = 0; h < N; h++) total += spot_.range[p].w[h] * out[h];
-    }
+    for (int h = 0; h < N; h++) total += spot_.range[p].w[h] * out[h];
     // normalise by the mass of hand pairs that can actually be dealt together
     sd_.live_weight(spot_.range[1].w.data(), live.data());
     double z = 0;
     for (int h = 0; h < N; h++) z += spot_.range[0].w[h] * live[h];
-    return z > 0 ? total / z / 2 / spot_.pot * 100 : 0;
+    return z > 0 ? total / z / spot_.pot * 100 : 0;
 }
+
+double RiverSolver::exploitability() const { return (best_response_value(0) + best_response_value(1)) / 2; }
 
 std::string RiverSolver::describe(int id, int a) const {
     const Node& n = nodes_[id];

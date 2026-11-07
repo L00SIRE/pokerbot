@@ -77,6 +77,42 @@ TEST(solver_all_algos_toy) {
     }
 }
 
+// model of a nit: folds to any bet, checks back when checked to
+static void model_always_folds(RiverSolver& sv, int who) {
+    for (Node& n : sv.tree()) {
+        if (n.type != Node::ACTION || n.player != who) continue;
+        n.model.assign(n.kids.size() * NUM_COMBOS, 0.0);
+        for (int a = 0; a < n.num_actions(); a++) {
+            if (n.moves[a] != Move::FOLD && n.moves[a] != Move::CHECK) continue;
+            for (int h = 0; h < NUM_COMBOS; h++) n.model[a * NUM_COMBOS + h] = 1.0;
+        }
+    }
+}
+
+// In the toy spot an extra bluff wins +100 vs the folder and loses -100 vs a caller
+// (relative to checking), so it's only worth it once p > 0.5. Below that the nemesis
+// just calls more, (1-p) * call = 50%, and the right answer is still nash.
+TEST(solver_rnr) {
+    RiverSpot spot = toy_spot();
+    Range air = Range::parse("43");
+    const double ps[4] = {0.0, 0.3, 0.7, 1.0};
+    double bluff[4], given_up[4];
+    for (int i = 0; i < 4; i++) {
+        RiverSolver sv(spot);
+        model_always_folds(sv, 1);
+        sv.set_exploit(1, ps[i]);
+        sv.iterate(1500);
+        bluff[i] = freq(sv, 0, child(sv, 0, Move::BET), air);
+        given_up[i] = sv.best_response_value(1);  // what a real counter takes back from us
+    }
+    CHECK_NEAR(bluff[0], 1.5 / 16, 0.015);  // p = 0 is plain nash
+    CHECK_NEAR(bluff[1], 1.5 / 16, 0.015);  // not confident enough to deviate
+    CHECK_NEAR(given_up[1], given_up[0], 0.5);
+    CHECK(bluff[2] > 0.95);  // now it's worth it, fire everything
+    CHECK(bluff[3] > 0.95);
+    CHECK(given_up[2] > given_up[0]);
+}
+
 TEST(solver_exploitability_drops) {
     RiverSpot s;
     s.board = parse_mask("Ks7d2c9hTs");

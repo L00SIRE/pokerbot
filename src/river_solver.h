@@ -59,12 +59,21 @@ public:
     int iterations() const { return t_; }
     Algo algo() const { return algo_; }
 
+    // Restricted Nash Response (Johanson et al. 2007). With probability p player `who`
+    // is the opponent we modelled and plays node.model, otherwise it's a "nemesis" that
+    // learns a best counter. We can't tell which one we're facing, so we exploit the model
+    // only as far as we can without the nemesis punishing us. p = 0 is plain nash, p = 1
+    // is a pure best response to the model. Fill node.model for that player's nodes first.
+    void set_exploit(int who, double p);
+
     // the strategy we'd actually play: average for the cfr family, last iterate for mmd
     std::vector<double> strategy(int node) const;
     std::vector<double> strategy(int node, int hand) const;  // action probs for one hand
 
     // average of both players' best response gains, as % of the starting pot. 0 = nash
     double exploitability() const;
+    // what player p wins (% of pot) best responding to the other player's strategy
+    double best_response_value(int p) const;
 
     std::string describe(int node, int action) const;
     const std::vector<Node>& tree() const { return nodes_; }
@@ -81,12 +90,15 @@ private:
     RiverShowdown sd_;
     std::vector<Node> nodes_;
     int t_ = 0;
+    int exploit_who_ = -1;
+    double exploit_p_ = 0;
 
     int add_node(Node::Type type, int player, double b0, double b1);
     int build(int player, double b0, double b1, int raises);
     void current(const Node& n, std::vector<double>& s) const;
     void terminal_values(const Node& n, int me, const double* opp, double* out) const;
-    void walk(int id, int me, const double* my, const double* opp, double* out);
+    // opp_fixed = reach of the modelled opponent (null unless we're exploiting them)
+    void walk(int id, int me, const double* my, const double* opp, const double* opp_fixed, double* out);
     void update(Node& n, const std::vector<double>& s, const std::vector<double>& vals,
                 const double* out, const double* my, const double* opp);
     void best_response(int id, int me, const double* opp, double* out) const;
