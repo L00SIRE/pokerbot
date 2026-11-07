@@ -25,5 +25,10 @@ add_executable(tests
 )
 target_link_libraries(tests poker)
 
+find_package(Threads REQUIRED)
+
+add_executable(verify_hands apps/verify_hands.cpp)
+target_link_libraries(verify_hands poker Threads::Threads)
+
 enable_testing()
 add_test(NAME tests COMMAND tests)
