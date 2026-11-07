@@ -59,5 +59,8 @@ target_link_libraries(solve_river poker)
 add_executable(buckets apps/buckets.cpp)
 target_link_libraries(buckets poker)
 
+add_executable(arena apps/arena.cpp)
+target_link_libraries(arena poker)
+
 enable_testing()
 add_test(NAME tests COMMAND tests)
