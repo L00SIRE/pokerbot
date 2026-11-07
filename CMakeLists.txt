@@ -24,6 +24,8 @@ add_library(poker
   src/opponent.cpp
   src/game.cpp
   src/bots.cpp
+  src/tracker.cpp
+  src/bully.cpp
 )
 target_include_directories(poker PUBLIC src)
 
@@ -39,6 +41,7 @@ add_executable(tests
   tests/test_exploit.cpp
   tests/test_opponent.cpp
   tests/test_game.cpp
+  tests/test_bully.cpp
 )
 target_link_libraries(tests poker)
 
