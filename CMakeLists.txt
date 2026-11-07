@@ -20,6 +20,7 @@ add_library(poker
   src/equity.cpp
   src/showdown.cpp
   src/river_solver.cpp
+  src/buckets.cpp
 )
 target_include_directories(poker PUBLIC src)
 
@@ -31,6 +32,7 @@ add_executable(tests
   tests/test_range.cpp
   tests/test_showdown.cpp
   tests/test_solver.cpp
+  tests/test_buckets.cpp
 )
 target_link_libraries(tests poker)
 
@@ -44,6 +46,9 @@ target_link_libraries(equity poker)
 
 add_executable(solve_river apps/solve_river.cpp)
 target_link_libraries(solve_river poker)
+
+add_executable(buckets apps/buckets.cpp)
+target_link_libraries(buckets poker)
 
 enable_testing()
 add_test(NAME tests COMMAND tests)
