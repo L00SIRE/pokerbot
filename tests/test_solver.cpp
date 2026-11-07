@@ -67,6 +67,16 @@ TEST(solver_toy_polar_spot) {
     CHECK_NEAR(freq(sv, 0, bet, air), 1.5 / 16, 0.015);
 }
 
+TEST(solver_all_algos_toy) {
+    for (Algo a : {Algo::CFR_PLUS, Algo::DCFR, Algo::PCFR_PLUS, Algo::MMD}) {
+        RiverSolver sv(toy_spot(), a);
+        sv.iterate(1000);
+        double e = sv.exploitability();
+        if (e > (a == Algo::MMD ? 1.0 : 0.1)) std::printf("    %s: %.4f\n", algo_name(a), e);
+        CHECK(e < (a == Algo::MMD ? 1.0 : 0.1));
+    }
+}
+
 TEST(solver_exploitability_drops) {
     RiverSpot s;
     s.board = parse_mask("Ks7d2c9hTs");

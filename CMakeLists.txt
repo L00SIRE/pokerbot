@@ -42,5 +42,8 @@ target_link_libraries(verify_hands poker Threads::Threads)
 add_executable(equity apps/equity.cpp)
 target_link_libraries(equity poker)
 
+add_executable(solve_river apps/solve_river.cpp)
+target_link_libraries(solve_river poker)
+
 enable_testing()
 add_test(NAME tests COMMAND tests)

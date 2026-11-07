@@ -3,12 +3,32 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <stdexcept>
 
 namespace poker {
 
 constexpr int N = NUM_COMBOS;
 
-RiverSolver::RiverSolver(const RiverSpot& spot) : spot_(spot), sd_(spot.board) {
+// dcfr params from the paper
+constexpr double DCFR_ALPHA = 1.5, DCFR_BETA = 0.0, DCFR_GAMMA = 2.0;
+
+const char* algo_name(Algo a) {
+    switch (a) {
+    case Algo::CFR_PLUS: return "cfr+";
+    case Algo::DCFR: return "dcfr";
+    case Algo::PCFR_PLUS: return "pcfr+";
+    case Algo::MMD: return "mmd";
+    }
+    return "?";
+}
+
+Algo parse_algo(const std::string& s) {
+    for (Algo a : {Algo::CFR_PLUS, Algo::DCFR, Algo::PCFR_PLUS, Algo::MMD})
+        if (s == algo_name(a)) return a;
+    throw std::invalid_argument("unknown algo: " + s);
+}
+
+RiverSolver::RiverSolver(const RiverSpot& spot, Algo algo) : spot_(spot), algo_(algo), sd_(spot.board) {
     for (auto& r : spot_.range) r.remove(spot_.board);
     build(spot_.to_act, spot_.bet[0], spot_.bet[1], spot_.raises);
 }
@@ -75,14 +95,21 @@ int RiverSolver::build(int player, double b0, double b1, int raises) {
     return id;
 }
 
-// regret matching
+// regret matching (predictive version adds the last instantaneous regret as a guess)
 void RiverSolver::current(const Node& n, std::vector<double>& s) const {
+    if (algo_ == Algo::MMD) {
+        s = n.cur;
+        return;
+    }
     const int na = n.num_actions();
+    const bool predict = algo_ == Algo::PCFR_PLUS;
     s.resize(na * N);
     for (int h = 0; h < N; h++) {
         double sum = 0;
         for (int a = 0; a < na; a++) {
-            double r = std::max(n.regret[a * N + h], 0.0);
+            double r = n.regret[a * N + h];
+            if (predict) r += n.last[a * N + h];
+            r = std::max(r, 0.0);
             s[a * N + h] = r;
             sum += r;
         }
@@ -129,15 +156,80 @@ void RiverSolver::walk(int id, int me, const double* my, const double* opp, doub
         walk(n.kids[a], me, reach.data(), opp, &vals[a * N]);
         for (int h = 0; h < N; h++) out[h] += s[a * N + h] * vals[a * N + h];
     }
+    update(n, s, vals, out, my, opp);
+}
 
-    // cfr+: floor regrets at zero, linear averaging
+void RiverSolver::update(Node& n, const std::vector<double>& s, const std::vector<double>& vals,
+                         const double* out, const double* my, const double* opp) {
+    const int na = n.num_actions();
     const double t = t_;
-    for (int a = 0; a < na; a++) {
-        for (int h = 0; h < N; h++) {
-            const int i = a * N + h;
-            n.regret[i] = std::max(0.0, n.regret[i] + vals[i] - out[h]);
-            n.avg[i] += t * my[h] * s[i];
+
+    switch (algo_) {
+    case Algo::CFR_PLUS:
+        for (int a = 0; a < na; a++) {
+            for (int h = 0; h < N; h++) {
+                const int i = a * N + h;
+                n.regret[i] = std::max(0.0, n.regret[i] + vals[i] - out[h]);
+                n.avg[i] += t * my[h] * s[i];
+            }
         }
+        break;
+
+    case Algo::DCFR: {
+        // positive regrets decay like t^a/(t^a+1), negative ones like t^b/(t^b+1).
+        // so a bad action isn't forgotten instantly (cfr+ zeroes it) but doesn't haunt us forever
+        const double pos = std::pow(t, DCFR_ALPHA) / (std::pow(t, DCFR_ALPHA) + 1);
+        const double neg = std::pow(t, DCFR_BETA) / (std::pow(t, DCFR_BETA) + 1);
+        const double w = std::pow(t, DCFR_GAMMA);
+        for (int a = 0; a < na; a++) {
+            for (int h = 0; h < N; h++) {
+                const int i = a * N + h;
+                double r = n.regret[i] + vals[i] - out[h];
+                n.regret[i] = r * (r > 0 ? pos : neg);
+                n.avg[i] += w * my[h] * s[i];
+            }
+        }
+        break;
+    }
+
+    case Algo::PCFR_PLUS:
+        // same as cfr+ but remember this regret, it's the prediction for next time. quadratic averaging
+        for (int a = 0; a < na; a++) {
+            for (int h = 0; h < N; h++) {
+                const int i = a * N + h;
+                const double r = vals[i] - out[h];
+                n.regret[i] = std::max(0.0, n.regret[i] + r);
+                n.last[i] = r;
+                n.avg[i] += t * t * my[h] * s[i];
+            }
+        }
+        break;
+
+    case Algo::MMD: {
+        // pi' ~ [pi * magnet^(eta tau) * exp(eta q)]^(1 / (1 + eta tau))
+        // q = value of the action given we got here, scaled by the biggest possible payoff
+        std::vector<double> live(N);
+        sd_.live_weight(opp, live.data());
+        const double scale = 1.0 / (spot_.pot / 2 + spot_.stack);
+        const double tt = tau / std::sqrt(t);
+        const double et = eta * tt;
+        std::vector<double> logit(na);
+        for (int h = 0; h < N; h++) {
+            if (live[h] <= 1e-12) continue;
+            double mx = -1e300;
+            for (int a = 0; a < na; a++) {
+                const int i = a * N + h;
+                double q = vals[i] / live[h] * scale;
+                double mag = n.magnet.empty() ? 1.0 / na : std::max(n.magnet[i], 1e-9);
+                logit[a] = (std::log(std::max(s[i], 1e-300)) + et * std::log(mag) + eta * q) / (1 + et);
+                mx = std::max(mx, logit[a]);
+            }
+            double sum = 0;
+            for (int a = 0; a < na; a++) sum += logit[a] = std::exp(logit[a] - mx);
+            for (int a = 0; a < na; a++) n.cur[a * N + h] = logit[a] / sum;
+        }
+        break;
+    }
     }
 }
 
@@ -152,6 +244,7 @@ void RiverSolver::iterate(int n) {
 
 std::vector<double> RiverSolver::strategy(int id) const {
     const Node& n = nodes_[id];
+    if (algo_ == Algo::MMD) return n.cur;
     const int na = n.num_actions();
     std::vector<double> s(na * N);
     for (int h = 0; h < N; h++) {
